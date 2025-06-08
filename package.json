@@ -1,6 +1,6 @@
 {
 	"name": "stremio-addon-PMW",
-	"version": "0.0.1",
+	"version": "0.1.0",
 	"description": "A Stremio extension to stream content from archive.wubby.tv",
 	"scripts": {
 		"start": "node server.js"
