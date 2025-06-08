@@ -6,6 +6,17 @@ Resources:
 - https://archive.wubby.tv/vods/public/may_2025/?C=M&O=A
 
 Commands:
+
 `npm install`
+
 `npm start -- --launch`
+
 `npm start -- --install`
+
+To deploy:
+
+`beamup`
+
+OR
+
+`git push beamup main`
