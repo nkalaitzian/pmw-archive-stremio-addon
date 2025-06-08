@@ -14,7 +14,7 @@ years.forEach(year => {
 });
 const manifest = {
 	id: "community.PMW",
-	version: "0.0.3",
+	version: "0.1.0",
 
 	name: "PMW Stream Archive",
 	description: "A Stremio extension to watch PaymoneyWubby's archived streams from archive.wubby.tv",
