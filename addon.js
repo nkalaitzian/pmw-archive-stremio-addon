@@ -22,7 +22,8 @@ const manifest = {
 	catalogs: [{ type: "movie", id: "pmwArchive", name: "PMW Archive", extra: [{name: 'genre', 'options': months_filter}] }],
 	resources: [
     "catalog",
-    "stream"
+    "stream",
+		{ name: "meta", types: ["movie"], idPrefixes: ["pmwArchive"] }
 	],
 	types: ["movie"],
 	icon: "https://i.redd.it/gdjrfcewm9o21.jpg",
@@ -45,7 +46,7 @@ const builder = new addonBuilder(manifest)
 
 builder.defineCatalogHandler(async ({type, id, extra}) => {
 	console.log("request for catalogs: "+type+" "+id+" extra: " + JSON.stringify(extra));
-	console.log("dataset: " + dataset);
+	// console.log("dataset: " + dataset);
 	// console.log(util.inspect(dataset, { depth: 10, colors: true }));
 	// Docs: https://github.com/Stremio/stremio-addon-sdk/blob/master/docs/api/requests/defineCatalogHandler.md
 	if (id === 'pmwArchive' && type === 'movie') {
@@ -59,7 +60,8 @@ builder.defineCatalogHandler(async ({type, id, extra}) => {
 				name: value.title.split(' - ')[0],
 				description: value.month + " " + value.title,
 				poster: 'https://i.redd.it/gdjrfcewm9o21.jpg',
-				// posterShape: 'square'
+				posterShape: 'square',
+				background: 'https://i.redd.it/gdjrfcewm9o21.jpg',
 			})
 		})
 		// console.log("returning metas: " + metas.length);
@@ -71,12 +73,27 @@ builder.defineCatalogHandler(async ({type, id, extra}) => {
 	}
 })
 
+builder.defineMetaHandler(({type, id}) => {
+	console.log("request for metas: "+type+" "+id);
+	// Docs: https://github.com/Stremio/stremio-addon-sdk/blob/master/docs/api/requests/defineMetaHandler.md
+	const meta = {
+		id: id,
+		type: type,
+		name: dataset[id].title.split(' - ')[0],
+		description: dataset[id].month + " " + dataset[id].title,
+		poster: 'https://i.redd.it/gdjrfcewm9o21.jpg',
+		posterShape: 'square',
+		background: 'https://i.redd.it/gdjrfcewm9o21.jpg',
+	}
+	return Promise.resolve({ meta: meta })
+});
+
 builder.defineStreamHandler(({type, id}) => {
 	console.log("request for streams: "+type+" "+id);
 	// writeDatasetToFile()
 	var streams = [];
 	if (/\w+:\d+:\d+/.test(id)) {
-		console.log(`Found stream: ${dataset[id].url}`)
+		// console.log(`Found stream: ${dataset[id].url}`)
 		streams.push({
 			url: dataset[id].url,
 			title: dataset[id].title
