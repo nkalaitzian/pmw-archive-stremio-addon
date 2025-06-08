@@ -4,7 +4,14 @@ const util = require('util')
 const fs = require('node:fs');
 
 // Docs: https://github.com/Stremio/stremio-addon-sdk/blob/master/docs/api/responses/manifest.md
-const months = ["apr_2023", "sep_2023", "oct_2023", "aug_2023", "nov_2023", "dec_2023", "may_2023", "feb_2023", "mar_2023", "jun_2023", "jan_2023", "jul_2023", "dec_2024", "jan_2024", "jul_2024", "apr_2024", "jun_2024", "oct_2024", "feb_2024", "mar_2024", "nov_2024", "sep_2024", "may_2024", "aug_2024", "mar_2025", "apr_2025", "jun_2025", "jan_2025", "feb_2025", "may_2025", "other"];
+const years = ['2023', '2024', '2025', '2026'];
+const months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+const months_filter = [];
+years.forEach(year => {
+	months.forEach(month => {
+		months_filter.push(`${month}_${year}`);
+	});
+});
 const manifest = {
 	id: "community.PMW",
 	version: "0.0.3",
@@ -12,7 +19,7 @@ const manifest = {
 	name: "PMW Stream Archive",
 	description: "A Stremio extension to watch PaymoneyWubby's archived streams from archive.wubby.tv",
 
-	catalogs: [{ type: "movie", id: "pmwArchive", name: "PMW Archive", extra: [{name: 'genre', 'options': months}] }],
+	catalogs: [{ type: "movie", id: "pmwArchive", name: "PMW Archive", extra: [{name: 'genre', 'options': months_filter}] }],
 	resources: [
     "catalog",
     "stream"
@@ -21,6 +28,7 @@ const manifest = {
 	icon: "https://i.redd.it/gdjrfcewm9o21.jpg",
 	
 }
+
 // var dataset = {
 //   'pmwArchive:1:1': {
 //     title: 'almostended.mp4',
@@ -62,18 +70,6 @@ builder.defineCatalogHandler(async ({type, id, extra}) => {
 		return Promise.resolve({ metas: [] })
 	}
 })
-
-// builder.defineStreamHandler(async (args) => {
-// 	const { type, id } = args
-// 	console.log("request for streams: "+type+" "+id)
-// 	// Docs: https://github.com/Stremio/stremio-addon-sdk/blob/master/docs/api/requests/defineStreamHandler.md
-// 	// return no streams
-// 	// if (type !== 'series') {
-// 	// 	return Promise.reject(new Error('Invalid type: ' + type))
-// 	// }
-// 	const streams = await fetchMonthStreams(id);
-// 	return Promise.resolve({ streams: streams })
-// })
 
 builder.defineStreamHandler(({type, id}) => {
 	console.log("request for streams: "+type+" "+id);
