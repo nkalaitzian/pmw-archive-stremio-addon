@@ -44,4 +44,4 @@ jobs:
 
       - name: Deploy to BeamUp
         run: |
-          git push beamup HEAD:master
+          git push beamup HEAD:main
