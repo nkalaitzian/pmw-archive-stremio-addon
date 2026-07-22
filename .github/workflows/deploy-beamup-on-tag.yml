@@ -1,0 +1,47 @@
+name: Deploy to BeamUp on Tag
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      BEAMUP_HOST: a.baby-beamup.club
+      BEAMUP_APP_PATH: d0d76533837f/pmw-archive-stremio-addon
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure SSH key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.BEAMUP_SSH_PRIVATE_KEY }}
+
+      - name: Trust BeamUp host key
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "$BEAMUP_HOST" >> ~/.ssh/known_hosts
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Add BeamUp remote
+        run: |
+          git remote remove beamup 2>/dev/null || true
+          git remote add beamup "dokku@$BEAMUP_HOST:$BEAMUP_APP_PATH"
+
+      - name: Deploy to BeamUp
+        run: |
+          git push beamup HEAD:master
