@@ -1,16 +1,18 @@
 {
-	"name": "stremio-addon-PMW",
-	"version": "1.0.1",
-	"description": "A Stremio extension to stream content from archive.wubby.tv",
-	"scripts": {
-		"start": "node server.js",
-		"test": "node --test"
-	},
-	"dependencies": {
-		"beamup-cli": "^1.3.2",
-		"cheerio": "^1.0.0",
-		"node-fetch": "^2.6.1",
-		"stremio-addon-sdk": "^1.6.10",
-		"util": "^0.12.5"
-	}
+  "name": "stremio-addon-PMW",
+  "version": "1.0.4",
+  "description": "A Stremio extension to stream content from archive.wubby.tv",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test",
+    "version:bump": "node scripts/bump-version.js",
+    "tag:current": "node scripts/tag-current-version.js"
+  },
+  "dependencies": {
+    "beamup-cli": "^1.3.2",
+    "cheerio": "^1.0.0",
+    "node-fetch": "^2.6.1",
+    "stremio-addon-sdk": "^1.6.10",
+    "util": "^0.12.5"
+  }
 }

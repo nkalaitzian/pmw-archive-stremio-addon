@@ -12,7 +12,7 @@ const DONATE_URL = "https://ko-fi.com/pastouris"
 // Docs: https://github.com/Stremio/stremio-addon-sdk/blob/master/docs/api/responses/manifest.md
 const manifest = {
   id: "community.PMW",
-  version: "1.0.1",
+  version: "1.0.4",
 
   name: "PMW Stream Archive",
   description: `Configure your browsing experience below. Recent Limit affects only PMW Recently Added, Year Order changes catalog sorting, and Clean Titles toggles friendly names vs raw filenames. <a href="${ARCHIVE_URL}" target="_blank" rel="noopener noreferrer">Archive</a> | <a href="${REPO_URL}" target="_blank" rel="noopener noreferrer">Repository</a> | <a href="${ISSUES_URL}" target="_blank" rel="noopener noreferrer">Suggest Features / Report Bugs</a> | <a href="${DONATE_URL}" target="_blank" rel="noopener noreferrer">Donate</a>`,

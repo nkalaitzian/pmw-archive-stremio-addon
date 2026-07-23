@@ -1,0 +1,35 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Release: Bump Version",
+      "type": "shell",
+      "command": "npm",
+      "args": [
+        "run",
+        "version:bump"
+      ],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Release: Tag Current Version",
+      "type": "shell",
+      "command": "npm",
+      "args": [
+        "run",
+        "tag:current"
+      ],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      },
+      "problemMatcher": []
+    }
+  ]
+}
