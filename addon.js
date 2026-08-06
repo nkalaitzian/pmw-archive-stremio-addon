@@ -12,10 +12,10 @@ const DONATE_URL = "https://ko-fi.com/pastouris"
 // Docs: https://github.com/Stremio/stremio-addon-sdk/blob/master/docs/api/responses/manifest.md
 const manifest = {
   id: "community.PMW",
-  version: "1.0.4",
+  version: "1.1.0",
 
   name: "PMW Stream Archive",
-  description: `Configure your browsing experience below. Recent Limit affects only PMW Recently Added, Year Order changes catalog sorting, and Clean Titles toggles friendly names vs raw filenames. <a href="${ARCHIVE_URL}" target="_blank" rel="noopener noreferrer">Archive</a> | <a href="${REPO_URL}" target="_blank" rel="noopener noreferrer">Repository</a> | <a href="${ISSUES_URL}" target="_blank" rel="noopener noreferrer">Suggest Features / Report Bugs</a> | <a href="${DONATE_URL}" target="_blank" rel="noopener noreferrer">Donate</a>`,
+  description: `A Stremio extension to stream content from archive.wubby.tv<br/><br/>Configure your browsing experience below. Recent Limit affects only PMW Recently Added, Year Order changes catalog sorting, and Clean Titles toggles friendly names vs raw filenames.<br/><br/><details><summary><strong>Cache Mode Guide And Parameters</strong></summary><br/><strong>fresh</strong>: prioritizes freshness with frequent updates. Values: indexTtlMs=30m, monthTtlMs=120m, recentTtlMs=5m, recentMonthsToRefresh=6.<br/><strong>balanced</strong>: default behavior for normal use. Values follow server defaults from environment (index 6h, month 24h, recent 15m, recentMonthsToRefresh 2 unless changed via env).<br/><strong>stable</strong>: minimizes refresh work and network usage. Values: indexTtlMs=12h, monthTtlMs=48h, recentTtlMs=60m, recentMonthsToRefresh=2.<br/><br/><strong>indexTtlMs</strong>: how long the month/year index stays valid before a refresh is triggered.<br/><strong>monthTtlMs</strong>: how long each month payload (episode list for a month) stays valid before refresh.<br/><strong>recentTtlMs</strong>: how long the PMW Recently Added list stays valid before refresh.<br/><strong>recentMonthsToRefresh</strong>: how many newest months are scanned when rebuilding the recent list; larger values improve recency coverage but do more work.</details><br/><br/><a href="${ARCHIVE_URL}" target="_blank" rel="noopener noreferrer">Archive</a> | <a href="${REPO_URL}" target="_blank" rel="noopener noreferrer">Repository</a> | <a href="${ISSUES_URL}" target="_blank" rel="noopener noreferrer">Suggest Features / Report Bugs</a> | <a href="${DONATE_URL}" target="_blank" rel="noopener noreferrer">Donate</a>`,
 
   catalogs: [
     { type: "series", id: "pmwArchive", name: "PMW Archive" },
@@ -50,6 +50,14 @@ const manifest = {
       type: "checkbox",
       title: "Use cleaned episode titles (disable for raw filenames)",
       default: "checked"
+    },
+    {
+      key: "cacheMode",
+      type: "select",
+      title: "Cache behavior preset (see Cache Mode Guide above)",
+      default: "balanced",
+      options: ["fresh", "balanced", "stable"],
+      required: false
     }
   ],
   icon: "https://i.redd.it/gdjrfcewm9o21.jpg",
@@ -87,6 +95,29 @@ const diagnostics = {
   lastRecentRefreshAt: null,
   lastScheduledRefreshAt: null,
   lastError: null
+}
+
+const MINUTE_MS = 60 * 1000
+
+const CACHE_MODES = {
+  fresh: {
+    indexTtlMs: 30 * MINUTE_MS,
+    monthTtlMs: 120 * MINUTE_MS,
+    recentTtlMs: 5 * MINUTE_MS,
+    recentMonthsToRefresh: 6
+  },
+  balanced: {
+    indexTtlMs: PMW_CONFIG.cache.indexTtlMs,
+    monthTtlMs: PMW_CONFIG.cache.monthTtlMs,
+    recentTtlMs: PMW_CONFIG.cache.recentTtlMs,
+    recentMonthsToRefresh: PMW_CONFIG.refresh.recentMonthsToRefresh
+  },
+  stable: {
+    indexTtlMs: 12 * 60 * MINUTE_MS,
+    monthTtlMs: 48 * 60 * MINUTE_MS,
+    recentTtlMs: 60 * MINUTE_MS,
+    recentMonthsToRefresh: 2
+  }
 }
 
 const cachePaths = {
@@ -155,16 +186,39 @@ function parseBoolean(value, defaultValue) {
   return defaultValue
 }
 
+function resolveRuntimeCacheMode(value) {
+  const selected = String(value || "balanced").toLowerCase()
+  if (CACHE_MODES[selected]) {
+    return {
+      mode: selected,
+      runtime: CACHE_MODES[selected]
+    }
+  }
+
+  return {
+    mode: "balanced",
+    runtime: CACHE_MODES.balanced
+  }
+}
+
 function getUserConfig(config) {
   const recentLimitRaw = Number(config && config.recentLimit)
   const recentLimit = Number.isFinite(recentLimitRaw) && recentLimitRaw > 0
     ? Math.min(100, Math.max(1, Math.floor(recentLimitRaw)))
     : PMW_CONFIG.recentLimit
+  const cacheMode = resolveRuntimeCacheMode(config && config.cacheMode)
 
   return {
     recentLimit,
     yearSort: config && config.yearSort === "asc" ? "asc" : "desc",
-    cleanTitles: parseBoolean(config && config.cleanTitles, true)
+    cleanTitles: parseBoolean(config && config.cleanTitles, true),
+    cacheMode: cacheMode.mode,
+    runtime: {
+      indexTtlMs: cacheMode.runtime.indexTtlMs,
+      monthTtlMs: cacheMode.runtime.monthTtlMs,
+      recentTtlMs: cacheMode.runtime.recentTtlMs,
+      recentMonthsToRefresh: cacheMode.runtime.recentMonthsToRefresh
+    }
   }
 }
 
@@ -190,6 +244,73 @@ function pickDisplayTitle(entry, cleanTitles) {
     : (entry.title || entry.displayTitle || normalizeDisplayTitle(entry))
 }
 
+function formatEpisodeListMetadata(entry) {
+  if (!entry) {
+    return ""
+  }
+
+  const parts = []
+  if (entry.fileSize) {
+    parts.push(entry.fileSize)
+  }
+
+  const uploaded = entry.modifiedAt || entry.streamDate || null
+  if (uploaded) {
+    parts.push(String(uploaded).slice(0, 10))
+  }
+
+  return parts.join(" | ")
+}
+
+function buildEpisodeListTitle(entry, cleanTitles, fallbackTitle) {
+  const baseTitle = cleanTitles
+    ? (entry.displayTitle || entry.name || normalizeDisplayTitle(entry) || fallbackTitle || "")
+    : (entry.rawTitle || entry.title || entry.displayTitle || entry.name || normalizeDisplayTitle(entry) || fallbackTitle || "")
+
+  const metadata = formatEpisodeListMetadata(entry)
+  if (!metadata) {
+    return baseTitle
+  }
+
+  return `${baseTitle}\n(${metadata})`
+}
+
+function buildStreamDescription(entry) {
+  if (!entry) {
+    return ""
+  }
+
+  const lines = []
+
+  if (entry.modifiedAt) {
+    lines.push(`Uploaded: ${entry.modifiedAt}`)
+  }
+
+  if (entry.fileSize) {
+    lines.push(`File size: ${entry.fileSize}`)
+  }
+
+  return lines.join("\n")
+}
+
+function buildStreamSubtitle(entry) {
+  if (!entry) {
+    return ""
+  }
+
+  const parts = []
+  if (entry.fileSize) {
+    parts.push(`💾 ${entry.fileSize}`)
+  }
+
+  const uploaded = entry.modifiedAt || entry.streamDate || null
+  if (uploaded) {
+    parts.push(`📅 ${String(uploaded).slice(0, 10)}`)
+  }
+
+  return parts.join("   ")
+}
+
 function buildSeriesIndex(entries) {
   const byYear = {}
 
@@ -209,6 +330,8 @@ function buildSeriesIndex(entries) {
       season: item.monthNumber,
       episode: item.episode,
       streamDate: item.streamDate,
+      modifiedAt: item.modifiedAt || null,
+      fileSize: item.fileSize || null,
       thumbnail: item.thumbnail || null,
       description: `${monthNames[item.monthNumber] || item.month} ${item.displayTitle || item.title}`
     })
@@ -258,6 +381,8 @@ function applyMonthVideos(monthInfo, videos) {
       thumbnail: video.thumbnail || null,
       streamDate: video.streamDate || null,
       modifiedAt: video.modifiedAt || null,
+      fileSize: video.fileSize || null,
+      fileSizeBytes: Number.isFinite(video.fileSizeBytes) ? video.fileSizeBytes : null,
       month: video.month,
       monthShort: video.monthShort,
       monthNumber: video.monthNumber,
@@ -269,7 +394,7 @@ function applyMonthVideos(monthInfo, videos) {
   buildSeriesIndexFromCache()
 }
 
-function loadIndexFromDisk() {
+function loadIndexFromDisk(indexTtlMs = PMW_CONFIG.cache.indexTtlMs) {
   const cached = readJson(cachePaths.index)
   if (!cached || !cached.years || !cached.seasons) {
     return { found: false, stale: true }
@@ -280,7 +405,7 @@ function loadIndexFromDisk() {
   diagnostics.lastIndexLoadAt = cached.updatedAt || null
   return {
     found: true,
-    stale: isExpired(cached.updatedAt, PMW_CONFIG.cache.indexTtlMs)
+    stale: isExpired(cached.updatedAt, indexTtlMs)
   }
 }
 
@@ -292,7 +417,7 @@ function saveIndexToDisk() {
   })
 }
 
-function loadRecentFromDisk() {
+function loadRecentFromDisk(recentTtlMs = PMW_CONFIG.cache.recentTtlMs) {
   const cached = readJson(cachePaths.recent)
   if (!cached || !Array.isArray(cached.episodes)) {
     return { found: false, stale: true }
@@ -301,7 +426,7 @@ function loadRecentFromDisk() {
   recentEpisodes = cached.episodes.map(normalizeRecentEpisodeTitle)
   return {
     found: true,
-    stale: isExpired(cached.updatedAt, PMW_CONFIG.cache.recentTtlMs)
+    stale: isExpired(cached.updatedAt, recentTtlMs)
   }
 }
 
@@ -312,7 +437,7 @@ function saveRecentToDisk() {
   })
 }
 
-function loadMonthFromDisk(monthInfo) {
+function loadMonthFromDisk(monthInfo, monthTtlMs = PMW_CONFIG.cache.monthTtlMs) {
   const cached = readJson(monthCachePath(monthInfo.folder))
   if (!cached || !Array.isArray(cached.videos)) {
     return { found: false, stale: true }
@@ -323,7 +448,7 @@ function loadMonthFromDisk(monthInfo) {
   saveMonthToDisk(monthInfo, normalizedVideos)
   return {
     found: true,
-    stale: isExpired(cached.updatedAt, PMW_CONFIG.cache.monthTtlMs)
+    stale: isExpired(cached.updatedAt, monthTtlMs)
   }
 }
 
@@ -340,16 +465,18 @@ function toRecentComparable(item) {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
-function rebuildRecentFromLoadedData() {
+function rebuildRecentFromLoadedData(limit = PMW_CONFIG.recentLimit) {
   const episodes = Object.values(dataset)
     .sort((a, b) => toRecentComparable(b) - toRecentComparable(a))
-    .slice(0, PMW_CONFIG.recentLimit)
+    .slice(0, Math.max(1, limit))
     .map((entry) => ({
       id: `pmwArchive:${entry.season}:${entry.episode}`,
       title: entry.displayTitle || entry.title,
       rawTitle: entry.title,
       overview: `${entry.streamDate ? entry.streamDate.slice(0, 10) : entry.year}-${String(entry.monthNumber).padStart(2, '0')} ${monthNames[entry.monthNumber] || entry.month}`,
       streamDate: entry.streamDate,
+      modifiedAt: entry.modifiedAt || null,
+      fileSize: entry.fileSize || null,
       thumbnail: entry.thumbnail || null
     }))
 
@@ -383,9 +510,12 @@ function refreshIndexInBackground() {
   }
 }
 
-async function loadIndex() {
+async function loadIndex(runtimeConfig) {
   try {
-    const cached = loadIndexFromDisk()
+    const indexTtlMs = runtimeConfig && runtimeConfig.indexTtlMs
+      ? runtimeConfig.indexTtlMs
+      : PMW_CONFIG.cache.indexTtlMs
+    const cached = loadIndexFromDisk(indexTtlMs)
     if (!cached.found) {
       await refreshIndexFromSource()
     } else {
@@ -406,27 +536,43 @@ async function loadIndex() {
   }
 }
 
-function ensureIndexReady() {
+async function ensureIndexReady(runtimeConfig) {
   if (!indexLoadPromise) {
-    indexLoadPromise = loadIndex()
+    indexLoadPromise = loadIndex(runtimeConfig)
   }
 
-  return indexLoadPromise
+  await indexLoadPromise
+
+  if (runtimeConfig && runtimeConfig.indexTtlMs && isExpired(diagnostics.lastIndexLoadAt, runtimeConfig.indexTtlMs)) {
+    debugLog("Index marked stale by configured TTL; refreshing in background")
+    refreshIndexInBackground()
+  }
 }
 
-async function ensureMonthLoaded(monthInfo) {
+async function ensureMonthLoaded(monthInfo, runtimeConfig) {
   if (!monthInfo || !monthInfo.folder) {
     return
   }
 
+  const monthTtlMs = runtimeConfig && runtimeConfig.monthTtlMs
+    ? runtimeConfig.monthTtlMs
+    : PMW_CONFIG.cache.monthTtlMs
+
   if (monthVideosCache[monthInfo.folder]) {
+    const monthCached = readJson(monthCachePath(monthInfo.folder))
+    if (monthCached && isExpired(monthCached.updatedAt, monthTtlMs)) {
+      refreshMonthFromSource(monthInfo).catch((err) => {
+        diagnostics.lastError = `month-refresh-${monthInfo.folder}: ${err.message}`
+        console.error(`Failed background refresh for ${monthInfo.folder}:`, err)
+      })
+    }
     return
   }
 
   if (!monthLoadPromises[monthInfo.folder]) {
     monthLoadPromises[monthInfo.folder] = (async () => {
       try {
-        const cached = loadMonthFromDisk(monthInfo)
+        const cached = loadMonthFromDisk(monthInfo, monthTtlMs)
         if (cached.found) {
           debugLog(`Loaded month ${monthInfo.folder} from disk cache`)
           if (cached.stale) {
@@ -452,41 +598,58 @@ async function ensureMonthLoaded(monthInfo) {
   await monthLoadPromises[monthInfo.folder]
 }
 
-async function ensureYearLoaded(year) {
-  await ensureIndexReady()
+async function ensureYearLoaded(year, runtimeConfig) {
+  await ensureIndexReady(runtimeConfig)
   const months = yearMonthIndex[year] || []
-  await Promise.all(months.map((monthInfo) => ensureMonthLoaded(monthInfo)))
+  await Promise.all(months.map((monthInfo) => ensureMonthLoaded(monthInfo, runtimeConfig)))
 }
 
-async function refreshRecentEpisodes() {
-  await ensureIndexReady()
+async function refreshRecentEpisodes(runtimeConfig, recentLimit = PMW_CONFIG.recentLimit) {
+  await ensureIndexReady(runtimeConfig)
 
   const monthEntries = flattenMonthsNewestFirst()
-  const loadTarget = Math.max(PMW_CONFIG.recentLimit, PMW_CONFIG.recentLimit * 2)
+  const recentMonthsToRefresh = runtimeConfig && runtimeConfig.recentMonthsToRefresh
+    ? runtimeConfig.recentMonthsToRefresh
+    : PMW_CONFIG.refresh.recentMonthsToRefresh
+  const loadTarget = Math.max(recentLimit, recentLimit * 2)
   let collected = 0
 
-  for (const monthInfo of monthEntries) {
-    await ensureMonthLoaded(monthInfo)
+  for (const monthInfo of monthEntries.slice(0, recentMonthsToRefresh)) {
+    await ensureMonthLoaded(monthInfo, runtimeConfig)
     collected += (monthVideosCache[monthInfo.folder] || []).length
     if (collected >= loadTarget) {
       break
     }
   }
 
-  rebuildRecentFromLoadedData()
+  rebuildRecentFromLoadedData(recentLimit)
   saveRecentToDisk()
   diagnostics.lastRecentRefreshAt = new Date().toISOString()
 }
 
-async function ensureRecentReady() {
+async function ensureRecentReady(userConfig) {
+  const runtimeConfig = userConfig && userConfig.runtime ? userConfig.runtime : null
+  const recentLimit = userConfig && userConfig.recentLimit ? userConfig.recentLimit : PMW_CONFIG.recentLimit
+
+  const recentCache = readJson(cachePaths.recent)
   if (recentEpisodes.length > 0) {
+    if (recentCache && runtimeConfig && isExpired(recentCache.updatedAt, runtimeConfig.recentTtlMs)) {
+      refreshRecentEpisodes(runtimeConfig, recentLimit).catch((err) => {
+        diagnostics.lastError = `recent-refresh: ${err.message}`
+        console.error('Failed refreshing recent episodes:', err)
+      })
+    }
     return
   }
 
-  const cached = loadRecentFromDisk()
+  const recentTtlMs = runtimeConfig && runtimeConfig.recentTtlMs
+    ? runtimeConfig.recentTtlMs
+    : PMW_CONFIG.cache.recentTtlMs
+
+  const cached = loadRecentFromDisk(recentTtlMs)
   if (cached.found) {
     if (cached.stale) {
-      refreshRecentEpisodes().catch((err) => {
+      refreshRecentEpisodes(runtimeConfig, recentLimit).catch((err) => {
         diagnostics.lastError = `recent-refresh: ${err.message}`
         console.error('Failed refreshing recent episodes:', err)
       })
@@ -495,7 +658,7 @@ async function ensureRecentReady() {
   }
 
   if (!recentLoadPromise) {
-    recentLoadPromise = refreshRecentEpisodes().finally(() => {
+    recentLoadPromise = refreshRecentEpisodes(runtimeConfig, recentLimit).finally(() => {
       recentLoadPromise = null
     })
   }
@@ -503,8 +666,11 @@ async function ensureRecentReady() {
   await recentLoadPromise
 }
 
-function latestMonthsToRefresh() {
-  return flattenMonthsNewestFirst().slice(0, PMW_CONFIG.refresh.recentMonthsToRefresh)
+function latestMonthsToRefresh(runtimeConfig) {
+  const recentMonthsToRefresh = runtimeConfig && runtimeConfig.recentMonthsToRefresh
+    ? runtimeConfig.recentMonthsToRefresh
+    : PMW_CONFIG.refresh.recentMonthsToRefresh
+  return flattenMonthsNewestFirst().slice(0, recentMonthsToRefresh)
 }
 
 function scheduleBackgroundRefresh() {
@@ -560,8 +726,8 @@ const builder = new addonBuilder(manifest)
 
 builder.defineCatalogHandler(async ({ type, id, extra, config }) => {
   console.log("request for catalogs: " + type + " " + id + " extra: " + JSON.stringify(extra));
-  await ensureIndexReady()
   const userConfig = getUserConfig(resolveRequestConfig(config, extra))
+  await ensureIndexReady(userConfig.runtime)
 
   if (id !== 'pmwArchive' || type !== 'series') {
     if (id === 'pmwRecent' && type === 'series') {
@@ -604,8 +770,8 @@ builder.defineCatalogHandler(async ({ type, id, extra, config }) => {
 
 builder.defineMetaHandler(async ({ type, id, config, extra }) => {
   console.log("request for metas: " + type + " " + id);
-  await ensureIndexReady()
   const userConfig = getUserConfig(resolveRequestConfig(config, extra))
+  await ensureIndexReady(userConfig.runtime)
 
   if (type !== "series") {
     return Promise.resolve({ meta: {} })
@@ -613,11 +779,11 @@ builder.defineMetaHandler(async ({ type, id, config, extra }) => {
 
   const match = /^pmwArchive:(\d{4})$/.exec(id || "")
   if (id === 'pmwArchive:recent') {
-    await ensureRecentReady()
+    await ensureRecentReady(userConfig)
 
     const videos = recentEpisodes.slice(0, userConfig.recentLimit).map((entry, index) => ({
       id: entry.id,
-      title: userConfig.cleanTitles ? entry.title : (entry.rawTitle || entry.title),
+      title: buildEpisodeListTitle(entry, userConfig.cleanTitles, entry.title),
       season: 1,
       episode: index + 1,
       thumbnail: entry.thumbnail || undefined,
@@ -643,11 +809,11 @@ builder.defineMetaHandler(async ({ type, id, config, extra }) => {
   }
 
   const year = match[1]
-  await ensureYearLoaded(year)
+  await ensureYearLoaded(year, userConfig.runtime)
 
   const videos = (seriesVideosIndex[year] || []).map((entry) => ({
     id: entry.id,
-    title: userConfig.cleanTitles ? entry.name : (entry.rawTitle || entry.name),
+    title: buildEpisodeListTitle(entry, userConfig.cleanTitles, entry.name),
     season: entry.season,
     episode: entry.episode,
     thumbnail: entry.thumbnail || undefined,
@@ -670,23 +836,28 @@ builder.defineMetaHandler(async ({ type, id, config, extra }) => {
 
 builder.defineStreamHandler(async ({ type, id, config, extra }) => {
   console.log("request for streams: " + type + " " + id);
-  await ensureIndexReady()
   const userConfig = getUserConfig(resolveRequestConfig(config, extra))
+  await ensureIndexReady(userConfig.runtime)
 
   const streamIdMatch = /^pmwArchive:(\d+):(\d+)$/.exec(id || "")
   if (streamIdMatch && !dataset[id]) {
     const season = Number(streamIdMatch[1])
     const monthInfo = seasonIndex[season]
     if (monthInfo) {
-      await ensureMonthLoaded(monthInfo)
+      await ensureMonthLoaded(monthInfo, userConfig.runtime)
     }
   }
 
   var streams = [];
   if (type === "series" && /\w+:\d+:\d+/.test(id) && dataset[id]) {
+    const displayName = pickDisplayTitle(dataset[id], userConfig.cleanTitles)
+    const streamSubtitle = buildStreamSubtitle(dataset[id])
+
     streams.push({
       url: dataset[id].url,
-      title: pickDisplayTitle(dataset[id], userConfig.cleanTitles)
+      name: displayName,
+      title: streamSubtitle || displayName,
+      description: buildStreamDescription(dataset[id])
     })
   }
   return Promise.resolve({ streams: streams })

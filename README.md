@@ -1,3 +1,5 @@
+## A Stremio extension to stream content from archive.wubby.tv
+
 Resources:
 - https://www.stremio.com/addon-sdk
 - https://github.com/Stremio/stremio-addon-sdk/blob/master/README.md
@@ -28,6 +30,15 @@ Per-user settings (in Stremio):
 	- `recentLimit`: how many items appear in `PMW Recently Added` for your install.
 	- `yearSort`: ascending or descending year order.
 	- `cleanTitles`: show cleaned titles or raw filenames.
+	- `cacheMode`: one preset for caching behavior (`fresh`, `balanced`, `stable`).
+		- `fresh`: index cache 30m, month cache 120m, recent cache 5m, scans latest 6 months for recent rebuilds.
+		- `balanced`: uses server defaults (index 6h, month 24h, recent 15m, latest 2 months scanned by default).
+		- `stable`: index cache 12h, month cache 48h, recent cache 60m, scans latest 2 months.
+	- Caching parameter glossary:
+		- `indexTtlMs`: validity window for the month/year index cache before refresh.
+		- `monthTtlMs`: validity window for each cached month payload before refresh.
+		- `recentTtlMs`: validity window for the `PMW Recently Added` cache before refresh.
+		- `recentMonthsToRefresh`: number of newest months scanned when rebuilding the recent list.
 - These are user-specific and do not affect other users.
 
 Configure page:

@@ -7,7 +7,7 @@ const {
   normalizeMonthVideos,
   parseMonthYearFolder
 } = require("../fetchCatalog")
-const { cleanEpisodeTitle } = require("../fetchUtil")
+const { cleanEpisodeTitle, parseFileSizeBytes } = require("../fetchUtil")
 
 test("parseMonthYearFolder parses valid month folder", () => {
   const parsed = parseMonthYearFolder("jul_2026")
@@ -47,6 +47,16 @@ test("cleanEpisodeTitle removes noisy suffixes", () => {
 test("cleanEpisodeTitle keeps meaningful names", () => {
   const title = cleanEpisodeTitle("MARIO_PARTY_WITH_CHAT_001.mp4")
   assert.equal(title, "MARIO PARTY WITH CHAT 001")
+})
+
+test("parseFileSizeBytes converts GB and MB values", () => {
+  assert.equal(parseFileSizeBytes("18 GB"), 19327352832)
+  assert.equal(parseFileSizeBytes("341 MB"), 357564416)
+})
+
+test("parseFileSizeBytes returns null for invalid values", () => {
+  assert.equal(parseFileSizeBytes(""), null)
+  assert.equal(parseFileSizeBytes("unknown"), null)
 })
 
 test("fallback display title format is date and sequence", () => {

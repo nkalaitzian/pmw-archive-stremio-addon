@@ -101,6 +101,39 @@ function parseModifiedAt(value) {
   return null
 }
 
+function parseFileSizeBytes(value) {
+  const normalized = (value || "").trim()
+  if (!normalized) {
+    return null
+  }
+
+  const match = /^([\d.]+)\s*([KMGT]?B)$/i.exec(normalized)
+  if (!match) {
+    return null
+  }
+
+  const amount = Number(match[1])
+  if (!Number.isFinite(amount)) {
+    return null
+  }
+
+  const unit = match[2].toUpperCase()
+  const multipliers = {
+    B: 1,
+    KB: 1024,
+    MB: 1024 * 1024,
+    GB: 1024 * 1024 * 1024,
+    TB: 1024 * 1024 * 1024 * 1024
+  }
+
+  const multiplier = multipliers[unit]
+  if (!multiplier) {
+    return null
+  }
+
+  return Math.round(amount * multiplier)
+}
+
 async function fetchLinkTitlesFromPage(url) {
   try {
     const res = await fetchWithRetry(url)
@@ -188,12 +221,16 @@ async function fetchVideoUrlsFromPage(url) {
         const fileName = decodeURIComponent(hrefNoQuery.split('/').pop())
         const baseName = fileName.replace(/\.(mp4|mkv|webm)$/i, "")
         const modifiedText = $(tr).find('td').eq(1).text()
+        const sizeText = $(tr).find('td').eq(2).text()
+        const normalizedSize = (sizeText || "").trim()
 
         videos.push({
           url: absoluteUrl,
           title: fileName,
           displayTitle: cleanEpisodeTitle(fileName),
           modifiedAt: parseModifiedAt(modifiedText),
+          fileSize: normalizedSize || null,
+          fileSizeBytes: parseFileSizeBytes(normalizedSize),
           thumbnail: thumbnailByBaseName[baseName] || null
         })
       } catch (err) {
@@ -210,6 +247,7 @@ async function fetchVideoUrlsFromPage(url) {
 
 module.exports = {
   cleanEpisodeTitle,
+  parseFileSizeBytes,
   fetchLinkTitlesFromPage,
   fetchVideoUrlsFromPage,
   fetchWithRetry
